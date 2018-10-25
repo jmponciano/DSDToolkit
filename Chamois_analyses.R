@@ -103,3 +103,31 @@ Mod.SelMNT2012 <- dredge.dsd(alpha.mod= mod.form, psi.mod =mod.form, dataset=MNT
 
 save.image("F-MT-MNT-TRIALRUN.RData")
 
+
+### An example of :  simulating data and then estimating model parameters and from these getting the model predictions
+quadrants <- 100
+t.steps <- 100
+b <- 3
+gam <- 1.7
+x0 <- 2
+betas.a <- c(4.1,4)
+betas.psi <- c(2,0.9)
+
+# Covariate for alpha and psi
+# We will assume there is only one covariate (and intercept)
+# so the model for the probability alpha is
+# 1/(1+exp(-intercept + slope*x)); where intercept is 0.1 and slope is 2
+ones	<-	rep(1,quadrants*t.steps)
+x.alpha	<-	cbind(ones,rnorm(quadrants*t.steps)) 
+x.acovar <- t(matrix(x.alpha, nrow=quadrants,ncol=t.steps))
+alphas	<-	t(matrix(expit(x.alpha%*%betas.a), nrow=quadrants,ncol=t.steps))
+
+x.psi	<-	cbind(ones,rnorm(quadrants*t.steps))
+x.pcovar <- t(matrix(x.psi, nrow=quadrants, ncol=t.steps))
+psi		<-	t(matrix(expit(x.psi%*%betas.psi), nrow=quadrants, ncol=t.steps))
+
+tsdata	<-	rdsd(t.steps=t.steps,t0=x0,alpha=alphas,beta=b,gamma=gam,psi=psi,reps=quadrants)	
+list.4test <- list(y = tsdata, acovar = x.acovar, psicovar = x.pcovar)
+mod		<-	dsd.glm(alpha.mod=y~acovar,psi.mod=y~psicovar,data=list.4test, family="NB")
+print(mod)
+
