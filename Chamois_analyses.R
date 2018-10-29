@@ -41,7 +41,7 @@ for(i in 1:length(files2010)){
 }
 
 names.dat		<-	c("y","elev","elevxsnow","kF","kMNT","kMT")
-names(F2010)	<-	names(F2011)	<-	names(F2012)	<-	names.dat
+names(F2010) <-	names(F2011)	<-	names(F2012)	<-	names.dat
 names(MT2010)	<-	names(MT2011)	<-	names(MT2012)	<-	names.dat
 names(MNT2010)	<-	names(MNT2011)	<-	names(MNT2012)	<-	names.dat
 
@@ -106,7 +106,7 @@ save.image("F-MT-MNT-TRIALRUN.RData")
 
 ### An example of :  simulating data and then estimating model parameters and from these getting the model predictions
 quadrants <- 100
-t.steps <- 100
+t.steps <- 50
 b <- 3
 gam <- 1.7
 x0 <- 2
@@ -118,12 +118,12 @@ betas.psi <- c(2,0.9)
 # so the model for the probability alpha is
 # 1/(1+exp(-intercept + slope*x)); where intercept is 0.1 and slope is 2
 ones	<-	rep(1,quadrants*t.steps)
-x.alpha	<-	cbind(ones,rnorm(quadrants*t.steps)) 
-x.acovar <- t(matrix(x.alpha, nrow=quadrants,ncol=t.steps))
-alphas	<-	t(matrix(expit(x.alpha%*%betas.a), nrow=quadrants,ncol=t.steps))
+x.alpha	<-	cbind(ones,cov=rnorm(quadrants*t.steps)) 
+x.acovar <- t(matrix(x.alpha[,2], nrow=quadrants,ncol=t.steps)) # this is the simulated matrix for the covariate of alpha
+alphas	<-	t(matrix(expit(x.alpha%*%betas.a), nrow=quadrants,ncol=t.steps)) 
 
 x.psi	<-	cbind(ones,rnorm(quadrants*t.steps))
-x.pcovar <- t(matrix(x.psi, nrow=quadrants, ncol=t.steps))
+x.pcovar <- t(matrix(x.psi[,2], nrow=quadrants, ncol=t.steps))
 psi		<-	t(matrix(expit(x.psi%*%betas.psi), nrow=quadrants, ncol=t.steps))
 
 tsdata	<-	rdsd(t.steps=t.steps,t0=x0,alpha=alphas,beta=b,gamma=gam,psi=psi,reps=quadrants)	
@@ -131,3 +131,44 @@ list.4test <- list(y = tsdata, acovar = x.acovar, psicovar = x.pcovar)
 mod		<-	dsd.glm(alpha.mod=y~acovar,psi.mod=y~psicovar,data=list.4test, family="NB")
 print(mod)
 
+### Now that we got estimates of alpha and psi for each cell and time step, use these to compute model predictions 
+# using function mu.x.nb
+
+dsd.pred <- function(data,model,cov.alpha,cov.psi) { # two options for data format:
+  # opt 1: data is a list with the first object being the data, the second the covariate for alpha, and the third the covariate for psi
+  # opt 2: data is a data frame with the data, and cov.alpha and cov.psi are data frames with the covariates
+  
+  # Set up 
+  if(class(data)!="list"&class(data)!="matrix"){stop("data must be a list or a matrix")}
+  if(class(data)=="list"){tsdata	<-	data[[1]]}else{tsdata<-data}
+  
+  if(class(data)=="list"){cov.alpha	<-	data[[2]]}else{cov.alpha<-cov.alpha}
+  if(class(data)=="list"){cov.psi	<-	data[[3]]}else{cov.psi<-cov.psi}
+  
+  quads	<-	ncol(tsdata)
+  tsteps	<-	nrow(tsdata)
+
+  # Handle covariates
+  ones	<-	rep(1,quads*tsteps)
+  
+  x.alpha	<-	cbind(ones,cov=as.vector(cov.alpha))
+  x.psi	<-	cbind(ones,cov=as.vector(cov.psi))
+  
+  # Compute matrix of alpha and psi
+  alphas <- t(matrix(expit(x.alpha%*%model$alpha), nrow=ncol(data),ncol=nrow(data)))
+  psis <- t(matrix(expit(x.psi%*%model$psi), nrow=ncol(data),ncol=nrow(data)))
+  
+  preds <- matrix(nrow=tsteps, ncol=quads)
+  preds[1,] <- tsdata[1,]
+  
+  for (i in 2:tsteps) {
+    for (j in 1:quads) {
+      preds[i,j] <- mu.x.nb(a=alphas[i,j],b=mod$b,gam=mod$gamma,psi=psis[i,j],x=preds[i-1,j])
+    }
+    }
+
+return(preds)
+
+}
+
+mod.pred <- dsd.pred(data=tsdata, model=mod, cov.alpha=x.acovar, cov.psi=x.pcovar)
